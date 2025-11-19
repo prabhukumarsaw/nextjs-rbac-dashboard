@@ -1,0 +1,178 @@
+// Prisma Schema for Enterprise Dashboard with RBAC
+// This schema defines User, Role, Permission, Menu, and AuditLog models
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model - stores all user information
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  username      String    @unique
+  password      String? // Nullable for social login users
+  firstName     String?
+  lastName      String?
+  avatar        String?
+  isActive      Boolean   @default(true)
+  isEmailVerified Boolean @default(false)
+  provider      String    @default("credentials") // credentials, google, whatsapp
+  providerId    String? // OAuth provider ID
+  lastLogin     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  roles         UserRole[]
+  auditLogs     AuditLog[]
+
+  @@index([email])
+  @@index([username])
+  @@index([isActive])
+  @@map("users")
+}
+
+// Role model - defines different roles in the system
+model Role {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique // superadmin, admin, manager, user, etc.
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  users       UserRole[]
+  permissions RolePermission[]
+  menus       RoleMenu[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("roles")
+}
+
+// Permission model - defines granular permissions
+model Permission {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique // e.g., user.create, user.read, user.update, user.delete
+  description String?
+  resource    String    // e.g., user, role, permission, menu
+  action      String    // e.g., create, read, update, delete, manage
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  roles       RolePermission[]
+
+  @@index([slug])
+  @@index([resource, action])
+  @@index([isActive])
+  @@map("permissions")
+}
+
+// Menu model - defines navigation menu items
+model Menu {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  path        String?   // Route path
+  icon        String?
+  parentId    String?   // For nested menus
+  order       Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  parent      Menu?     @relation("MenuHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Menu[]    @relation("MenuHierarchy")
+  roles       RoleMenu[]
+
+  @@index([slug])
+  @@index([parentId])
+  @@index([isActive])
+  @@map("menus")
+}
+
+// Junction table: User <-> Role (Many-to-Many)
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+// Junction table: Role <-> Permission (Many-to-Many)
+model RolePermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  // Relations
+  role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// Junction table: Role <-> Menu (Many-to-Many)
+model RoleMenu {
+  id        String   @id @default(cuid())
+  roleId    String
+  menuId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  menu      Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, menuId])
+  @@index([roleId])
+  @@index([menuId])
+  @@map("role_menus")
+}
+
+// AuditLog model - tracks all user actions for compliance and security
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String   // e.g., CREATE_USER, UPDATE_ROLE, DELETE_PERMISSION
+  resource    String   // e.g., User, Role, Permission
+  resourceId  String?  // ID of the affected resource
+  description String?  // Human-readable description
+  metadata    String?  // JSON string for additional data
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
