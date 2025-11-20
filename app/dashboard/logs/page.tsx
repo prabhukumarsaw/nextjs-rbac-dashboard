@@ -3,6 +3,7 @@ import { checkPermission } from "@/lib/auth/permissions";
 import { getAuditLogs } from "@/lib/audit-log";
 import { redirect } from "next/navigation";
 import { LogsTable } from "@/components/logs/logs-table";
+import PageContainer from "@/components/layout/page-container";
 
 /**
  * Audit Logs Page
@@ -34,7 +35,8 @@ export default async function LogsPage({
   const result = await getAuditLogs(page, 50, filters);
 
   return (
-    <div className="space-y-6">
+    <PageContainer>
+      <div className='flex flex-1 flex-col space-y-2'>
       <div>
         <h1 className="text-3xl font-bold">Audit Logs</h1>
         <p className="text-muted-foreground mt-2">
@@ -49,6 +51,7 @@ export default async function LogsPage({
         totalPages={result.totalPages}
       />
     </div>
+    </PageContainer>
   );
 }
 

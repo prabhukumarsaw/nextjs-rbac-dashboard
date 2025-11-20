@@ -6,6 +6,7 @@ import { PermissionsTable } from "@/components/permissions/permissions-table";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import Link from "next/link";
+import PageContainer from "@/components/layout/page-container";
 
 /**
  * Permissions Management Page
@@ -35,7 +36,8 @@ export default async function PermissionsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <PageContainer>
+      <div className='flex flex-1 flex-col space-y-2'>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Permission Management</h1>
@@ -55,6 +57,7 @@ export default async function PermissionsPage() {
 
       <PermissionsTable permissions={result.permissions} />
     </div>
+    </PageContainer>
   );
 }
 

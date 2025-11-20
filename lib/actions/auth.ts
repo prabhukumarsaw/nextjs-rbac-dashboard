@@ -6,16 +6,24 @@ import { generateToken, setAuthCookie, removeAuthCookie, getCurrentUser } from "
 import { createAuditLog } from "@/lib/audit-log";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { checkLoginRateLimit, getClientIP } from "@/lib/security/rate-limit";
+import { checkLoginRateLimit } from "@/lib/security/rate-limit";
 import { emailSchema, passwordSchema } from "@/lib/security/validation";
 import { headers } from "next/headers";
 import { z } from "zod";
 
 /**
- * Server Actions for Authentication
- * Handles login, logout, and user session management
- * Includes rate limiting and input validation for security
+ * Enhanced login schema with better validation
  */
+const loginSchema = z.object({
+  email: z.string()
+    .email("Invalid email address")
+    .min(1, "Email is required")
+    .max(100, "Email must be less than 100 characters")
+    .transform(email => email.toLowerCase().trim()),
+  password: z.string()
+    .min(1, "Password is required")
+    .max(100, "Password must be less than 100 characters"),
+});
 
 export interface LoginCredentials {
   email: string;
@@ -23,17 +31,17 @@ export interface LoginCredentials {
 }
 
 /**
- * Authenticate user with email and password
- * @param credentials - Login credentials
- * @returns Success status and user data or error
+ * Authenticate user with enhanced security and error handling
  */
 export async function login(credentials: LoginCredentials) {
   try {
-    // Get client IP for rate limiting
+    // Get client IP for rate limiting and audit
     const headersList = await headers();
-    const ip = headersList.get("x-forwarded-for")?.split(",")[0] || 
+    const ip = headersList.get("x-forwarded-for")?.split(",")[0]?.trim() || 
                headersList.get("x-real-ip") || 
+               headersList.get("cf-connecting-ip") ||
                "unknown";
+    const userAgent = headersList.get("user-agent") || "unknown";
 
     // Rate limiting check
     const rateLimit = checkLoginRateLimit(ip);
@@ -43,20 +51,21 @@ export async function login(credentials: LoginCredentials) {
         resource: "User",
         description: `Rate limit exceeded for IP: ${ip}`,
         ipAddress: ip,
+        userAgent,
       });
       return {
         success: false,
-        error: "Too many login attempts. Please try again later.",
+        error: "Too many login attempts. Please try again in a few minutes.",
       };
     }
 
-    // Validate input (relaxed password validation for login)
-    const validatedEmail = emailSchema.parse(credentials.email);
-    // For login, we just need to check password exists, not strength
-    const validatedPassword = z.string().min(1).parse(credentials.password);
-    // Find user by email
+    // Validate input
+    const validated = loginSchema.parse(credentials);
+    const email = emailSchema.parse(validated.email);
+
+    // Find user by email with role information
     const user = await prisma.user.findUnique({
-      where: { email: validatedEmail },
+      where: { email },
       include: {
         roles: {
           include: {
@@ -66,41 +75,77 @@ export async function login(credentials: LoginCredentials) {
       },
     });
 
+    // Generic error message for security (don't reveal if email exists)
+    const genericError = {
+      success: false,
+      error: "Invalid email or password",
+    };
+
     if (!user) {
-      return {
-        success: false,
-        error: "Invalid email or password",
-      };
+      await createAuditLog({
+        action: "LOGIN_FAILED",
+        resource: "User",
+        description: `Failed login attempt for email: ${email}`,
+        ipAddress: ip,
+        userAgent,
+      });
+      return genericError;
     }
 
     // Check if user is active
     if (!user.isActive) {
+      await createAuditLog({
+        action: "LOGIN_FAILED",
+        resource: "User",
+        resourceId: user.id,
+        description: `Login attempt for deactivated account: ${user.email}`,
+        ipAddress: ip,
+        userAgent,
+      });
       return {
         success: false,
         error: "Your account has been deactivated. Please contact administrator.",
       };
     }
 
-    // Verify password (skip for social login users without password)
-    if (user.password) {
-      const isValidPassword = await bcrypt.compare(validatedPassword, user.password);
-      if (!isValidPassword) {
-        return {
-          success: false,
-          error: "Invalid email or password",
-        };
-      }
-    } else {
+    // Verify password for credential-based users
+    if (!user.password) {
+      await createAuditLog({
+        action: "LOGIN_FAILED",
+        resource: "User",
+        resourceId: user.id,
+        description: `Password login attempted for social account: ${user.email}`,
+        ipAddress: ip,
+        userAgent,
+      });
       return {
         success: false,
-        error: "Please use social login for this account",
+        error: "This account uses social login. Please use the social login option.",
       };
     }
 
-    // Update last login
+    // Verify password
+    const isValidPassword = await bcrypt.compare(validated.password, user.password);
+    if (!isValidPassword) {
+      await createAuditLog({
+        action: "LOGIN_FAILED",
+        resource: "User",
+        resourceId: user.id,
+        description: `Invalid password attempt for user: ${user.email}`,
+        ipAddress: ip,
+        userAgent,
+      });
+      return genericError;
+    }
+
+    // Update last login timestamp
     await prisma.user.update({
       where: { id: user.id },
-      data: { lastLogin: new Date() },
+      data: { 
+        lastLogin: new Date(),
+        // Optional: Update lastActive for tracking
+        // lastActive: new Date(),
+      },
     });
 
     // Get user roles
@@ -114,19 +159,22 @@ export async function login(credentials: LoginCredentials) {
       roles,
     });
 
-    // Set cookie
+    // Set authentication cookie
     await setAuthCookie(token);
 
-    // Create audit log with IP and user agent
-    const userAgent = headersList.get("user-agent") || "unknown";
+    // Create successful login audit log
     await createAuditLog({
       action: "LOGIN",
       resource: "User",
       resourceId: user.id,
-      description: `User ${user.email} logged in`,
+      description: `User ${user.email} logged in successfully`,
       ipAddress: ip,
       userAgent,
     });
+
+    // Revalidate relevant paths
+    revalidatePath("/");
+    revalidatePath("/dashboard");
 
     return {
       success: true,
@@ -140,30 +188,26 @@ export async function login(credentials: LoginCredentials) {
       },
     };
   } catch (error) {
-    // Don't leak sensitive error information
+    // Enhanced error handling with structured logging
+    console.error("Login error:", {
+      timestamp: new Date().toISOString(),
+      error: error instanceof Error ? {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      } : error,
+    });
+
+    // Handle validation errors
     if (error instanceof z.ZodError) {
+      const firstError = error.errors[0];
       return {
         success: false,
-        error: error.errors[0].message || "Invalid input",
+        error: firstError?.message || "Invalid form data",
       };
     }
-    
-    // Log error but don't expose details to user
-    // Use structured logging for better observability
-    if (error instanceof Error) {
-      console.error(JSON.stringify({
-        level: "error",
-        message: "Login error",
-        timestamp: new Date().toISOString(),
-        error: {
-          name: error.name,
-          message: error.message,
-        },
-      }));
-    } else {
-      console.error("Login error:", error);
-    }
-    
+
+    // Generic error response for security
     return {
       success: false,
       error: "Invalid email or password",
@@ -172,12 +216,13 @@ export async function login(credentials: LoginCredentials) {
 }
 
 /**
- * Logout current user
+ * Enhanced logout function with better error handling
  */
 export async function logout() {
   try {
     const user = await getCurrentUser();
     
+    // Create audit log for logout
     if (user) {
       await createAuditLog({
         action: "LOGOUT",
@@ -187,28 +232,41 @@ export async function logout() {
       });
     }
 
+    // Remove authentication cookie
     await removeAuthCookie();
-    revalidatePath("/");
-    redirect("/login");
-  } catch (error) {
-    // Log error but continue with logout
-    if (error instanceof Error) {
-      console.error(JSON.stringify({
-        level: "error",
-        message: "Logout error",
-        timestamp: new Date().toISOString(),
-        error: {
-          name: error.name,
-          message: error.message,
-        },
-      }));
-    } else {
-      console.error("Logout error:", error);
-    }
     
+    // Revalidate all relevant paths
+    revalidatePath("/");
+    revalidatePath("/dashboard");
+    revalidatePath("/profile");
+    
+    // Redirect to login page
+    redirect("/auth/sign-in");
+  } catch (error) {
+    // Log error but ensure user is logged out
+    console.error("Logout error:", {
+      timestamp: new Date().toISOString(),
+      error: error instanceof Error ? {
+        name: error.name,
+        message: error.message,
+      } : error,
+    });
+    
+    // Always remove cookie and redirect even on error
     await removeAuthCookie();
-    redirect("/login");
+    redirect("/auth/sign-in");
   }
 }
 
-
+/**
+ * Get current user session (optional helper function)
+ */
+export async function getSession() {
+  try {
+    const user = await getCurrentUser();
+    return user;
+  } catch (error) {
+    console.error("Session error:", error);
+    return null;
+  }
+}

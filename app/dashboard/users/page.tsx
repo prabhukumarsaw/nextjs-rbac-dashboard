@@ -6,6 +6,7 @@ import { UsersTable } from "@/components/users/users-table";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import Link from "next/link";
+import PageContainer from "@/components/layout/page-container";
 
 /**
  * Users Management Page
@@ -42,7 +43,8 @@ export default async function UsersPage({
   }
 
   return (
-    <div className="space-y-6">
+    <PageContainer>
+      <div className='flex flex-1 flex-col space-y-2'>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">User Management</h1>
@@ -68,6 +70,7 @@ export default async function UsersPage({
         search={search}
       />
     </div>
+    </PageContainer>
   );
 }
 

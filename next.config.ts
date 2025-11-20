@@ -9,7 +9,13 @@ const nextConfig: NextConfig = {
   // Optimize images
   images: {
     formats: ["image/avif", "image/webp"],
-    remotePatterns: [],
+     remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'api.slingacademy.com',
+        port: ''
+      }
+    ]
   },
   
   // Security headers (also handled in middleware, but good to have here too)
