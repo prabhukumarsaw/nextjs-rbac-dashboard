@@ -1,13 +1,21 @@
-import jwt from "jsonwebtoken";
+import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { env } from "@/lib/config/env";
 
 /**
  * JWT Token Configuration
  * Handles token generation, verification, and cookie management
+ * Uses jose library for Edge runtime compatibility (works in middleware and server actions)
  */
 
-const JWT_SECRET = process.env.JWT_SECRET || "default-secret-change-in-production";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+const JWT_SECRET = env.JWT_SECRET;
+const JWT_EXPIRES_IN = env.JWT_EXPIRES_IN;
+
+// Convert secret to Uint8Array for jose
+const getSecretKey = () => {
+  const encoder = new TextEncoder();
+  return encoder.encode(JWT_SECRET);
+};
 
 export interface JWTPayload {
   userId: string;
@@ -21,10 +29,13 @@ export interface JWTPayload {
  * @param payload - User data to encode in token
  * @returns JWT token string
  */
-export function generateToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
-  });
+export async function generateToken(payload: JWTPayload): Promise<string> {
+  const secretKey = getSecretKey();
+  return await new SignJWT(payload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(JWT_EXPIRES_IN)
+    .sign(secretKey);
 }
 
 /**
@@ -32,9 +43,11 @@ export function generateToken(payload: JWTPayload): string {
  * @param token - JWT token to verify
  * @returns Decoded payload or null if invalid
  */
-export function verifyToken(token: string): JWTPayload | null {
+export async function verifyToken(token: string): Promise<JWTPayload | null> {
   try {
-    return jwt.verify(token, JWT_SECRET) as JWTPayload;
+    const secretKey = getSecretKey();
+    const { payload } = await jwtVerify(token, secretKey);
+    return payload as JWTPayload;
   } catch (error) {
     return null;
   }
@@ -46,12 +59,16 @@ export function verifyToken(token: string): JWTPayload | null {
  */
 export async function setAuthCookie(token: string) {
   const cookieStore = await cookies();
+  const isProduction = process.env.NODE_ENV === "production";
+  
   cookieStore.set("auth-token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    httpOnly: true, // Prevents XSS attacks
+    secure: isProduction, // HTTPS only in production
+    sameSite: "lax", // CSRF protection
     maxAge: 60 * 60 * 24 * 7, // 7 days
     path: "/",
+    // Add domain restriction in production if needed
+    // domain: isProduction ? ".yourdomain.com" : undefined,
   });
 }
 
@@ -79,6 +96,6 @@ export async function removeAuthCookie() {
 export async function getCurrentUser(): Promise<JWTPayload | null> {
   const token = await getAuthToken();
   if (!token) return null;
-  return verifyToken(token);
+  return await verifyToken(token);
 }
 

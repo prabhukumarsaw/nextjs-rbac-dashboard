@@ -30,6 +30,7 @@ model User {
   // Relations
   roles         UserRole[]
   auditLogs     AuditLog[]
+  blogs         Blog[]
 
   @@index([email])
   @@index([username])
@@ -174,5 +175,32 @@ model AuditLog {
   @@index([resource])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// Blog model - user-specific blog posts
+model Blog {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  content     String   // Rich text content
+  excerpt     String?  // Short description
+  coverImage  String?  // Cover image URL
+  isPublished Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  views       Int      @default(0)
+  authorId    String   // User who created the blog
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime?
+
+  // Relations
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([authorId])
+  @@index([slug])
+  @@index([isPublished])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("blogs")
 }
 
