@@ -1,7 +1,10 @@
 import { getCurrentUser } from "@/lib/auth/jwt";
 import { checkPermission } from "@/lib/auth/permissions";
-import { getUsers } from "@/lib/actions/users";
 import { redirect } from "next/navigation";
+import { getOrganizationUsers } from "@/lib/organization/users";
+import { getUsers } from "@/lib/actions/users";
+import { getCurrentOrganizationId } from "@/lib/organization/context";
+import { isSuperadmin } from "@/lib/organization/validation";
 import { UsersTable } from "@/components/users/users-table";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
@@ -10,7 +13,7 @@ import PageContainer from "@/components/layout/page-container";
 
 /**
  * Users Management Page
- * Displays list of all users with pagination and search
+ * Displays organization-specific users or all users (superadmin)
  * Requires user.read permission
  */
 export default async function UsersPage({
@@ -20,7 +23,7 @@ export default async function UsersPage({
 }) {
   const user = await getCurrentUser();
   if (!user) {
-    redirect("/login");
+    redirect("/auth/sign-in");
   }
 
   // Check permission
@@ -31,8 +34,13 @@ export default async function UsersPage({
 
   const page = parseInt(searchParams.page || "1");
   const search = searchParams.search;
+  const orgId = await getCurrentOrganizationId();
+  const isSuper = await isSuperadmin();
 
-  const result = await getUsers(page, 10, search);
+  // Use organization-specific users if org selected, otherwise all users (superadmin)
+  const result = orgId && !(isSuper && orgId === null)
+    ? await getOrganizationUsers(page, 10, search)
+    : await getUsers(page, 10, search);
 
   if (!result.success) {
     return (

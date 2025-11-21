@@ -1,17 +1,19 @@
 import { getCurrentUser } from "@/lib/auth/jwt";
 import { checkPermission } from "@/lib/auth/permissions";
 import { redirect } from "next/navigation";
-import { getRoles } from "@/lib/actions/roles";
+import { getAssignableRoles } from "@/lib/organization/roles";
+import { getCurrentOrganizationId } from "@/lib/organization/context";
 import { CreateUserForm } from "@/components/users/create-user-form";
+import PageContainer from "@/components/layout/page-container";
 
 /**
  * Create User Page
- * Allows authorized users to create new users
+ * Allows authorized users to add users to organization
  */
 export default async function CreateUserPage() {
   const user = await getCurrentUser();
   if (!user) {
-    redirect("/login");
+    redirect("/auth/sign-in");
   }
 
   const hasAccess = await checkPermission("user.create");
@@ -19,20 +21,27 @@ export default async function CreateUserPage() {
     redirect("/dashboard/users");
   }
 
-  const rolesResult = await getRoles();
+  const orgId = await getCurrentOrganizationId();
+  if (!orgId) {
+    redirect("/dashboard/users");
+  }
+
+  const rolesResult = await getAssignableRoles();
   const roles = rolesResult.success ? rolesResult.roles : [];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Create New User</h1>
-        <p className="text-muted-foreground mt-2">
-          Add a new user to the system and assign roles
-        </p>
-      </div>
+    <PageContainer>
+      <div className="flex flex-1 flex-col space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Add User to Organization</h1>
+          <p className="text-muted-foreground mt-2">
+            Add a new user to your organization and assign roles
+          </p>
+        </div>
 
-      <CreateUserForm roles={roles} />
-    </div>
+        <CreateUserForm roles={roles} />
+      </div>
+    </PageContainer>
   );
 }
 

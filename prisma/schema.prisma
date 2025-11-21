@@ -1,5 +1,6 @@
 // Prisma Schema for Enterprise Dashboard with RBAC
-// This schema defines User, Role, Permission, Menu, and AuditLog models
+// This schema defines User, Role, Permission, Menu, AuditLog, and Organization models
+// Multi-tenant architecture: Each organization has isolated users, roles, permissions, and menus
 
 generator client {
   provider = "prisma-client-js"
@@ -10,11 +11,37 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Organization model - Multi-tenant isolation layer
+model Organization {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique // Unique identifier for organization (e.g., "state-maharashtra", "org-acme")
+  description String?
+  logo        String?   // Organization logo URL
+  isActive    Boolean   @default(true)
+  settings    String?   // JSON string for organization-specific settings
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  users       UserOrganization[]
+  roles       Role[]
+  permissions Permission[]
+  menus       Menu[]
+  auditLogs   AuditLog[]
+  blogs       Blog[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("organizations")
+}
+
 // User model - stores all user information
+// Users can belong to multiple organizations (multi-tenant users)
 model User {
   id            String    @id @default(cuid())
-  email         String    @unique
-  username      String    @unique
+  email         String    @unique // Global email (unique across all organizations)
+  username      String    @unique // Global username (unique across all organizations)
   password      String? // Nullable for social login users
   firstName     String?
   lastName      String?
@@ -28,6 +55,7 @@ model User {
   updatedAt     DateTime  @updatedAt
 
   // Relations
+  organizations UserOrganization[] // Users can belong to multiple organizations
   roles         UserRole[]
   auditLogs     AuditLog[]
   blogs         Blog[]
@@ -39,84 +67,105 @@ model User {
 }
 
 // Role model - defines different roles in the system
+// Roles are scoped to organizations (each org has its own roles)
+// Note: "superadmin" role should be global (organizationId = null) for system-wide access
 model Role {
-  id          String    @id @default(cuid())
-  name        String    @unique
-  slug        String    @unique // superadmin, admin, manager, user, etc.
-  description String?
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  name           String
+  slug           String // e.g., superadmin, admin, manager, user, etc.
+  description   String?
+  organizationId String?   // null = global role (superadmin), otherwise org-specific
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   // Relations
-  users       UserRole[]
-  permissions RolePermission[]
-  menus       RoleMenu[]
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users          UserRole[]
+  permissions    RolePermission[]
+  menus          RoleMenu[]
 
+  @@unique([slug, organizationId]) // Unique slug per organization (null counts as one org)
   @@index([slug])
+  @@index([organizationId])
   @@index([isActive])
   @@map("roles")
 }
 
 // Permission model - defines granular permissions
+// Permissions are scoped to organizations (each org can have custom permissions)
+// Note: Global permissions (organizationId = null) are available to all organizations
 model Permission {
-  id          String    @id @default(cuid())
-  name        String    @unique
-  slug        String    @unique // e.g., user.create, user.read, user.update, user.delete
-  description String?
-  resource    String    // e.g., user, role, permission, menu
-  action      String    // e.g., create, read, update, delete, manage
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  name           String
+  slug           String // e.g., user.create, user.read, user.update, user.delete
+  description    String?
+  resource       String    // e.g., user, role, permission, menu
+  action         String    // e.g., create, read, update, delete, manage
+  organizationId String?   // null = global permission, otherwise org-specific
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   // Relations
-  roles       RolePermission[]
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  roles          RolePermission[]
 
+  @@unique([slug, organizationId]) // Unique slug per organization
   @@index([slug])
   @@index([resource, action])
+  @@index([organizationId])
   @@index([isActive])
   @@map("permissions")
 }
 
 // Menu model - defines navigation menu items
+// Menus are scoped to organizations (each org has its own menu structure)
+// Note: Global menus (organizationId = null) are available to all organizations
 model Menu {
-  id          String    @id @default(cuid())
-  name        String
-  slug        String    @unique
-  path        String?   // Route path
-  icon        String?
-  parentId    String?   // For nested menus
-  order       Int       @default(0)
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  name           String
+  slug           String
+  path           String?   // Route path
+  icon           String?
+  parentId       String?   // For nested menus
+  organizationId String?   // null = global menu, otherwise org-specific
+  order          Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   // Relations
-  parent      Menu?     @relation("MenuHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
-  children    Menu[]    @relation("MenuHierarchy")
-  roles       RoleMenu[]
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent         Menu?     @relation("MenuHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children       Menu[]    @relation("MenuHierarchy")
+  roles          RoleMenu[]
 
+  @@unique([slug, organizationId]) // Unique slug per organization
   @@index([slug])
   @@index([parentId])
+  @@index([organizationId])
   @@index([isActive])
   @@map("menus")
 }
 
 // Junction table: User <-> Role (Many-to-Many)
+// UserRole is scoped to organization (user has role in specific organization)
 model UserRole {
-  id        String   @id @default(cuid())
-  userId    String
-  roleId    String
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  userId         String
+  roleId         String
+  organizationId String?  // Organization context (can be derived from role, but stored for performance)
+  createdAt      DateTime @default(now())
 
   // Relations
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, roleId])
+  @@unique([userId, roleId, organizationId]) // User can have same role in different orgs
   @@index([userId])
   @@index([roleId])
+  @@index([organizationId])
   @@map("user_roles")
 }
 
@@ -155,22 +204,26 @@ model RoleMenu {
 }
 
 // AuditLog model - tracks all user actions for compliance and security
+// Audit logs are scoped to organizations for isolation
 model AuditLog {
-  id          String   @id @default(cuid())
-  userId      String
-  action      String   // e.g., CREATE_USER, UPDATE_ROLE, DELETE_PERMISSION
-  resource    String   // e.g., User, Role, Permission
-  resourceId  String?  // ID of the affected resource
-  description String?  // Human-readable description
-  metadata    String?  // JSON string for additional data
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime @default(now())
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String?  // Organization context for the action
+  action         String   // e.g., CREATE_USER, UPDATE_ROLE, DELETE_PERMISSION
+  resource       String   // e.g., User, Role, Permission
+  resourceId     String?  // ID of the affected resource
+  description    String?  // Human-readable description
+  metadata       String?  // JSON string for additional data
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
 
   // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([organizationId])
   @@index([action])
   @@index([resource])
   @@index([createdAt])
@@ -178,29 +231,57 @@ model AuditLog {
 }
 
 // Blog model - user-specific blog posts
+// Blogs are scoped to organizations
 model Blog {
-  id          String   @id @default(cuid())
-  title       String
-  slug        String   @unique
-  content     String   // Rich text content
-  excerpt     String?  // Short description
-  coverImage  String?  // Cover image URL
-  isPublished Boolean  @default(false)
-  isActive    Boolean  @default(true)
-  views       Int      @default(0)
-  authorId    String   // User who created the blog
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  publishedAt DateTime?
+  id             String   @id @default(cuid())
+  title          String
+  slug           String
+  content        String   // Rich text content
+  excerpt        String?  // Short description
+  coverImage     String?  // Cover image URL
+  isPublished    Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  views          Int      @default(0)
+  authorId       String   // User who created the blog
+  organizationId String?  // Organization context
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  publishedAt    DateTime?
 
   // Relations
-  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author         User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@unique([slug, organizationId]) // Unique slug per organization
   @@index([authorId])
   @@index([slug])
+  @@index([organizationId])
   @@index([isPublished])
   @@index([isActive])
   @@index([createdAt])
   @@map("blogs")
+}
+
+// Junction table: User <-> Organization (Many-to-Many)
+// Users can belong to multiple organizations
+model UserOrganization {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           String?  // Optional: user's primary role in this organization
+  isActive       Boolean  @default(true)
+  joinedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([isActive])
+  @@map("user_organizations")
 }
 

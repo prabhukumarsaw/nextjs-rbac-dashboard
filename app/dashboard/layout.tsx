@@ -7,6 +7,8 @@ import Header from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
+import { getUserOrganizations, getCurrentOrganizationId } from '@/lib/organization/context';
+import { isSuperadmin } from '@/lib/organization/validation';
 
 export const metadata: Metadata = {
   title: 'Next Shadcn Dashboard Starter',
@@ -31,11 +33,31 @@ export default async function DashboardLayout({
   // Get user's accessible menus
   const menus = await getUserMenus(user.userId);
 
+  // Get organizations and current organization context
+  const [organizations, currentOrgId, isSuper] = await Promise.all([
+    getUserOrganizations(),
+    getCurrentOrganizationId(),
+    isSuperadmin(),
+  ]);
+
+  // Format organizations for OrgSwitcher
+  const orgsForSwitcher = organizations.map((org: { id: string; name: string; slug: string; logo?: string | null }) => ({
+    id: org.id,
+    name: org.name,
+    slug: org.slug,
+    logo: org.logo,
+  }));
 
   return (
     <KBar>
       <SidebarProvider defaultOpen={defaultOpen}>
-        <AppSidebar menus={menus} user={user} />
+        <AppSidebar 
+          menus={menus} 
+          user={user}
+          organizations={orgsForSwitcher}
+          currentOrganizationId={currentOrgId}
+          isSuperadmin={isSuper}
+        />
         <SidebarInset>
           <Header user={user} />
           {/* page main content */}

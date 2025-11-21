@@ -53,11 +53,6 @@ export const company = {
   plan: 'Enterprise'
 };
 
-const tenants = [
-  { id: '1', name: 'Acme Inc' },
-  { id: '2', name: 'Beta Corp' },
-  { id: '3', name: 'Gamma Ltd' }
-];
 
 /**
  * Dashboard Sidebar Component
@@ -81,6 +76,14 @@ interface DashboardSidebarProps {
     username: string;
     roles: string[];
   };
+  organizations: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    logo?: string | null;
+  }>;
+  currentOrganizationId: string | null;
+  isSuperadmin: boolean;
 }
 
 // Map your menu icon names to Icons component
@@ -101,7 +104,13 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   billing: Icons.billing,
 };
 
-export default function AppSidebar({ menus, user }: DashboardSidebarProps) {
+export default function AppSidebar({ 
+  menus, 
+  user, 
+  organizations,
+  currentOrganizationId,
+  isSuperadmin
+}: DashboardSidebarProps) {
   const pathname = usePathname();
   const { isOpen } = useMediaQuery();
   const router = useRouter();
@@ -122,12 +131,6 @@ export default function AppSidebar({ menus, user }: DashboardSidebarProps) {
     .filter(menu => menu.path) // Filter out items without paths
     .sort((a, b) => (a.order || 0) - (b.order || 0));
 
-  const handleSwitchTenant = (_tenantId: string) => {
-    // Tenant switching functionality would be implemented here
-  };
-
-  const activeTenant = tenants[0];
-
   React.useEffect(() => {
     // Side effects based on sidebar state changes
   }, [isOpen]);
@@ -146,11 +149,10 @@ export default function AppSidebar({ menus, user }: DashboardSidebarProps) {
   return (
     <Sidebar collapsible='icon'>
       <SidebarHeader>
-       
         <OrgSwitcher
-          tenants={tenants}
-          defaultTenant={activeTenant}
-          onTenantSwitch={handleSwitchTenant}
+          organizations={organizations}
+          currentOrganizationId={currentOrganizationId}
+          isSuperadmin={isSuperadmin}
         />
       </SidebarHeader>
       
@@ -188,12 +190,12 @@ export default function AppSidebar({ menus, user }: DashboardSidebarProps) {
                       <CollapsibleContent>
                         <SidebarMenuSub>
                           {menu.children.map((child) => {
-                            const isChildActive = pathname === child.path || (child.path && pathname?.startsWith(child.path + "/"));
+                            const isChildActive = Boolean(pathname === child.path || (child.path && pathname?.startsWith(child.path + "/")));
                             return (
                               <SidebarMenuSubItem key={child.id}>
                                 <SidebarMenuSubButton
                                   asChild
-                                  isActive={isChildActive}
+                                  isActive={isChildActive || undefined}
                                 >
                                   <Link href={child.path || '#'}>
                                     <span>{child.name}</span>
@@ -215,7 +217,7 @@ export default function AppSidebar({ menus, user }: DashboardSidebarProps) {
                   <SidebarMenuButton
                     asChild
                     tooltip={menu.name}
-                    isActive={isActive}
+                    isActive={isActive || undefined}
                   >
                     <Link href={menu.path || '#'}>
                       {renderIcon(menu.icon)}

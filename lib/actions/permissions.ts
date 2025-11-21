@@ -33,12 +33,25 @@ const updatePermissionSchema = z.object({
 
 /**
  * Create a new permission
+ * ONLY SUPERADMIN can create permissions
+ * Organizations can only assign existing permissions to roles
  */
 export async function createPermission(data: z.infer<typeof createPermissionSchema>) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    // Check if user is superadmin (only superadmin can create permissions)
+    const { isSuperadmin } = await import("@/lib/organization/validation");
+    const isSuper = await isSuperadmin();
+    
+    if (!isSuper) {
+      return {
+        success: false,
+        error: "Only superadmin can create permissions. Organizations can only assign existing permissions to roles.",
+      };
     }
 
     const hasAccess = await hasPermission(currentUser.userId, "permission.create");
@@ -154,12 +167,24 @@ export async function updatePermission(data: z.infer<typeof updatePermissionSche
 
 /**
  * Delete a permission
+ * ONLY SUPERADMIN can delete permissions
  */
 export async function deletePermission(permissionId: string) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    // Check if user is superadmin (only superadmin can delete permissions)
+    const { isSuperadmin } = await import("@/lib/organization/validation");
+    const isSuper = await isSuperadmin();
+    
+    if (!isSuper) {
+      return {
+        success: false,
+        error: "Only superadmin can delete permissions.",
+      };
     }
 
     const hasAccess = await hasPermission(currentUser.userId, "permission.delete");

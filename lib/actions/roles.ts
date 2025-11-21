@@ -33,12 +33,25 @@ const updateRoleSchema = z.object({
 
 /**
  * Create a new role
+ * ONLY SUPERADMIN can create roles
+ * Organizations can only assign existing roles to users
  */
 export async function createRole(data: z.infer<typeof createRoleSchema>) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    // Check if user is superadmin (only superadmin can create roles)
+    const { isSuperadmin } = await import("@/lib/organization/validation");
+    const isSuper = await isSuperadmin();
+    
+    if (!isSuper) {
+      return {
+        success: false,
+        error: "Only superadmin can create roles. Organizations can only assign existing roles to users.",
+      };
     }
 
     const hasAccess = await hasPermission(currentUser.userId, "role.create");
@@ -48,21 +61,37 @@ export async function createRole(data: z.infer<typeof createRoleSchema>) {
 
     const validated = createRoleSchema.parse(data);
 
-    // Check if slug already exists
-    const existing = await prisma.role.findUnique({
-      where: { slug: validated.slug },
+    // Get organization context for role creation
+    const { getCurrentOrganizationId } = await import("@/lib/organization/context");
+    const orgId = await getCurrentOrganizationId();
+    
+    // Check if slug already exists in organization context
+    // Unique constraint is on [slug, organizationId]
+    const existing = await prisma.role.findFirst({
+      where: {
+        slug: validated.slug,
+        organizationId: orgId || null, // Check in current org or global
+      },
     });
+    
     if (existing) {
-      return { success: false, error: "Role slug already exists" };
+      return { 
+        success: false, 
+        error: `Role slug "${validated.slug}" already exists${orgId ? " in this organization" : " globally"}` 
+      };
     }
 
-    // Create role
+    // Create role (superadmin can create global or org-specific roles)
+    const { getCurrentOrganizationId } = await import("@/lib/organization/context");
+    const orgId = await getCurrentOrganizationId();
+    
     const role = await prisma.role.create({
       data: {
         name: validated.name,
         slug: validated.slug,
         description: validated.description,
         isActive: validated.isActive,
+        organizationId: orgId || null, // Superadmin can create global (null) or org-specific roles
       },
     });
 

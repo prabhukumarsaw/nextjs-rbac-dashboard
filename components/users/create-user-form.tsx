@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { createUser } from "@/lib/actions/users";
+import { addUserToOrganization } from "@/lib/organization/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,12 +65,12 @@ export function CreateUserForm({ roles }: CreateUserFormProps) {
   const onSubmit = async (data: CreateUserFormData) => {
     setLoading(true);
     try {
-      const result = await createUser(data);
+      const result = await addUserToOrganization(data);
 
       if (result.success) {
         toast({
-          title: "User created",
-          description: "The user has been successfully created.",
+          title: "User added",
+          description: "The user has been successfully added to your organization.",
         });
 
         if (result.password) {
@@ -88,7 +88,7 @@ export function CreateUserForm({ roles }: CreateUserFormProps) {
       } else {
         toast({
           title: "Error",
-          description: result.error || "Failed to create user",
+          description: result.error || "Failed to add user to organization",
           variant: "destructive",
         });
       }
@@ -115,8 +115,10 @@ export function CreateUserForm({ roles }: CreateUserFormProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>User Information</CardTitle>
-        <CardDescription>Enter the details for the new user</CardDescription>
+        <CardTitle>Add User to Organization</CardTitle>
+        <CardDescription>
+          Add a new user to your organization. If the user already exists, they will be added to your organization.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -238,7 +240,7 @@ export function CreateUserForm({ roles }: CreateUserFormProps) {
           <div className="flex gap-4">
             <Button type="submit" disabled={loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create User
+              Add User
             </Button>
             <Button
               type="button"

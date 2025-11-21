@@ -1,22 +1,26 @@
 import { getCurrentUser } from "@/lib/auth/jwt";
 import { checkPermission } from "@/lib/auth/permissions";
-import { getPermissions } from "@/lib/actions/permissions";
 import { redirect } from "next/navigation";
+import { getPermissions } from "@/lib/actions/permissions";
+import { getAssignablePermissions } from "@/lib/organization/roles";
+import { getCurrentOrganizationId } from "@/lib/organization/context";
+import { isSuperadmin } from "@/lib/organization/validation";
 import { PermissionsTable } from "@/components/permissions/permissions-table";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Shield } from "lucide-react";
 import Link from "next/link";
 import PageContainer from "@/components/layout/page-container";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 /**
  * Permissions Management Page
- * Displays list of all permissions grouped by resource
+ * Displays assignable permissions (organizations) or all permissions (superadmin)
  * Requires permission.read permission
  */
 export default async function PermissionsPage() {
   const user = await getCurrentUser();
   if (!user) {
-    redirect("/login");
+    redirect("/auth/sign-in");
   }
 
   // Check permission
@@ -25,7 +29,13 @@ export default async function PermissionsPage() {
     redirect("/dashboard");
   }
 
-  const result = await getPermissions();
+  const orgId = await getCurrentOrganizationId();
+  const isSuper = await isSuperadmin();
+  
+  // Organizations see assignable permissions, superadmin sees all permissions
+  const result = (isSuper && orgId === null)
+    ? await getPermissions()
+    : await getAssignablePermissions();
 
   if (!result.success) {
     return (
@@ -40,12 +50,14 @@ export default async function PermissionsPage() {
       <div className='flex flex-1 flex-col space-y-2'>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Permission Management</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Permission Management</h1>
           <p className="text-muted-foreground mt-2">
-            Manage system permissions and access control
+            {isSuper && orgId === null
+              ? "Manage all system permissions and access control"
+              : "View permissions available for assignment in your organization"}
           </p>
         </div>
-        {await checkPermission("permission.create") && (
+        {await checkPermission("permission.create") && isSuper && (
           <Link href="/dashboard/permissions/new">
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -55,7 +67,16 @@ export default async function PermissionsPage() {
         )}
       </div>
 
-      <PermissionsTable permissions={result.permissions} />
+      {!isSuper && (
+        <Alert>
+          <Shield className="h-4 w-4" />
+          <AlertDescription>
+            Organizations can only assign existing permissions to roles. Only superadmin can create new permissions.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <PermissionsTable permissions={result.success ? result.permissions : []} />
     </div>
     </PageContainer>
   );
