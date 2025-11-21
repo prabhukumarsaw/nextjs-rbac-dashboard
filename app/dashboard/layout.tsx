@@ -48,6 +48,8 @@ export default async function DashboardLayout({
     logo: org.logo,
   }));
 
+  console.log("currentOrgId", currentOrgId)
+
   return (
     <KBar>
       <SidebarProvider defaultOpen={defaultOpen}>

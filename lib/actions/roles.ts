@@ -82,8 +82,8 @@ export async function createRole(data: z.infer<typeof createRoleSchema>) {
     }
 
     // Create role (superadmin can create global or org-specific roles)
-    const { getCurrentOrganizationId } = await import("@/lib/organization/context");
-    const orgId = await getCurrentOrganizationId();
+    // const { getCurrentOrganizationId } = await import("@/lib/organization/context");
+    // const orgId = await getCurrentOrganizationId();
     
     const role = await prisma.role.create({
       data: {

@@ -40,6 +40,7 @@ export function OrgSwitcher({
 }: OrgSwitcherProps) {
   const router = useRouter();
   const [isSwitching, setIsSwitching] = React.useState(false);
+  
 
   const currentOrg = organizations.find(org => org.id === currentOrganizationId);
   const displayName = currentOrg?.name || (isSuperadmin ? 'All Organizations' : 'Select Organization');
